@@ -8,21 +8,21 @@ This repository contains a production-grade, containerized AI/backend applicatio
 
 ```mermaid
 graph TD
-    User([User / Client]) -->|HTTPS: 443| Cloudflare[Cloudflare CDN / DNS]
-    Cloudflare -->|HTTPS: 443| Nginx[NGINX Reverse Proxy (Gateway)]
+    User(["User / Client"]) -->|HTTPS: 443| Cloudflare["Cloudflare CDN / DNS"]
+    Cloudflare -->|HTTPS: 443| Nginx["NGINX Reverse Proxy (Gateway)"]
     
     subgraph Docker Bridge Network
-        Nginx -->|HTTP: 8000| FastAPI[FastAPI Application (API)]
-        FastAPI -->|PostgreSQL Protocol| Postgres[(PostgreSQL Database)]
-        FastAPI -->|Redis Protocol| Redis[(Redis Cache)]
+        Nginx -->|HTTP: 8000| FastAPI["FastAPI Application (API)"]
+        FastAPI -->|PostgreSQL Protocol| Postgres[("PostgreSQL Database")]
+        FastAPI -->|Redis Protocol| Redis[("Redis Cache")]
         
-        Prometheus[Prometheus Server] -->|Scrapes /metrics| FastAPI
-        Grafana[Grafana Dashboard] -->|Queries| Prometheus
+        Prometheus["Prometheus Server"] -->|Scrapes /metrics| FastAPI
+        Grafana["Grafana Dashboard"] -->|Queries| Prometheus
     end
 
     subgraph Host System / Backups
-        Cron[Cron Daemon] -->|Triggers backup.sh| Postgres
-        Postgres -->|Generates sql.gz| BackupsDir[Local Backups]
+        Cron["Cron Daemon"] -->|Triggers backup.sh| Postgres
+        Postgres -->|Generates sql.gz| BackupsDir["Local Backups"]
     end
 ```
 
