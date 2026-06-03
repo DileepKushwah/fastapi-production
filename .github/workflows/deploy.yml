@@ -1,0 +1,120 @@
+name: Build, Test, and Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ----------------------------------------------------------------------------
+  # Test Job: Runs tests with Postgres and Redis service containers
+  # ----------------------------------------------------------------------------
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      # Postgres Database Service
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: appdb
+          POSTGRES_USER: appuser
+          POSTGRES_PASSWORD: StrongPass123
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      # Redis Cache Service
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Pytest
+        env:
+          # Match service containers settings
+          DATABASE_URL: postgresql+asyncpg://appuser:StrongPass123@localhost:5432/appdb
+          REDIS_URL: redis://:RedisPass123@localhost:6379/0
+          SECRET_KEY: test-secret-key-for-ci
+          DEBUG: "true"
+        run: |
+          pytest -v tests/
+
+  # ----------------------------------------------------------------------------
+  # Deploy Job: Builds Docker Image, Pushes, and deploys to target VPS
+  # ----------------------------------------------------------------------------
+  deploy:
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/fastapi-production:latest
+            ${{ secrets.DOCKER_USERNAME }}/fastapi-production:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy to VPS Server via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /opt/fastapi-production
+            
+            # Export commit SHA to pull exact version
+            export APP_VERSION=${{ github.sha }}
+            
+            # Pull the latest containers
+            docker compose pull
+            
+            # Run docker compose up. Since order: start-first is set in compose,
+            # this will start the new API container, wait for healthcheck, then clean up the old one.
+            docker compose up -d --no-deps api
+            
+            # Clean up dangling images to save space
+            docker system prune -f
